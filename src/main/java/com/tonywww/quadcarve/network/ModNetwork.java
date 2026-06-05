@@ -1,7 +1,6 @@
 package com.tonywww.quadcarve.network;
 
 import com.tonywww.quadcarve.QuadCarveMod;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
 
@@ -9,7 +8,7 @@ public class ModNetwork {
 
     private static final String PROTOCOL = "1";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(QuadCarveMod.MOD_ID, "main"),
+            QuadCarveMod.prefix("main"),
             () -> PROTOCOL,
             PROTOCOL::equals,
             PROTOCOL::equals

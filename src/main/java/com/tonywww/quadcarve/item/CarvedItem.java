@@ -1,5 +1,6 @@
 package com.tonywww.quadcarve.item;
 
+import com.tonywww.quadcarve.api.finalizer.FinalizerRegistry;
 import com.tonywww.quadcarve.core.CarvingData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
@@ -9,7 +10,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ClickAction;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
@@ -20,7 +20,8 @@ import java.util.List;
  * The carved item. All stages (in-progress and finished) share this single ID.
  *
  * NBT keys are managed by CarvingData. Tooltip shows depth / completion / materials.
- * Finalisation: right-click with slime ball → writes finished=true and structure hash.
+ * Finalisation: right-click with any item registered in {@link FinalizerRegistry}
+ * (default: slimeball; extensible via {@link com.tonywww.quadcarve.api.QuadCarveAPI}).
  */
 public class CarvedItem extends Item {
 
@@ -62,32 +63,31 @@ public class CarvedItem extends Item {
                 .withStyle(ChatFormatting.GRAY));
     }
 
-    // ── Finalisation (right-click with slime ball in inventory) ───────────────
+    // ── Finalisation ──────────────────────────────────────────────────────────
 
     /**
-     * Called when another item stack is right-clicked onto this one in an inventory slot.
-     * Using a slime ball (or any item tagged quadcarve:finalizers) triggers finalisation.
+     * Right-clicking this stack with any item registered in {@link FinalizerRegistry}
+     * triggers finalisation: sorts the palette, remaps the tree, and stores an MD5
+     * structure hash. After this, carving is permanently disabled.
+     *
+     * To add custom finaliser items, call
+     * {@link com.tonywww.quadcarve.api.QuadCarveAPI#registerFinalizer} during mod setup.
      */
-    @Override
     public boolean overrideOtherStackedOnMe(ItemStack stack, ItemStack other,
                                             SlotAccess slot, ClickAction action,
                                             Player player, SlotAccess access) {
         if (action != ClickAction.SECONDARY) return false;
-        // Accept slime ball as finaliser (can be broadened to a tag in future)
-        if (!other.is(Items.SLIME_BALL)) return false;
+        if (!FinalizerRegistry.isFinalizer(other)) return false;
 
         CompoundTag tag = stack.getOrCreateTag();
         CarvingData data = CarvingData.readFromNBT(tag);
-        if (data.isFinished()) return false; // already done
+        if (data.isFinished()) return false;
 
-        // Consume one slime ball
         if (!player.isCreative()) other.shrink(1);
 
-        data.finalize(tag); // sorts, remaps, hashes, sets finished = true
+        data.finalize(tag);
         return true;
     }
-
-    // ── Prevent stacking finished ≠ in-progress (different NBT) ──────────────
 
     @Override
     public boolean canBeDepleted() { return false; }
