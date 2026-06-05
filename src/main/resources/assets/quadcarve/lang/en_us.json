@@ -1,0 +1,12 @@
+{
+  "item.quadcarve.chisel":        "Chisel",
+  "item.quadcarve.carved_item":   "Carved Item",
+  "itemGroup.quadcarve":          "QuadCarve",
+  "container.quadcarve.chisel":   "Chisel",
+
+  "tooltip.quadcarve.finished":       "✔ Finalised",
+  "tooltip.quadcarve.in_progress":    "✎ In Progress",
+  "tooltip.quadcarve.depth":          "Depth: %s",
+  "tooltip.quadcarve.fill":           "Fill: %s%% (%s / %s leaves)",
+  "tooltip.quadcarve.materials":      "Materials: %s"
+}
