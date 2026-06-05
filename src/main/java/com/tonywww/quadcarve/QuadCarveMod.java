@@ -24,6 +24,7 @@ public class QuadCarveMod {
      * Creates a {@link ResourceLocation} in the {@code quadcarve} namespace.
      * Use instead of {@code new ResourceLocation(MOD_ID, path)} which is deprecated in 1.20+.
      */
+    @SuppressWarnings("removal")
     public static ResourceLocation prefix(String path) {
         return new ResourceLocation(MOD_ID, path);
     }

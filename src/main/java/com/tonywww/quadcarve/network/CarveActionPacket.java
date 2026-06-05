@@ -2,36 +2,40 @@ package com.tonywww.quadcarve.network;
 
 import com.tonywww.quadcarve.core.CarvingData;
 import com.tonywww.quadcarve.item.CarvedItem;
-import com.tonywww.quadcarve.menu.ChiselMenu;
+import com.tonywww.quadcarve.item.ChiselItem;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.network.NetworkEvent;
+import net.minecraftforge.network.NetworkDirection;
 
 import java.util.function.Supplier;
 
 /**
- * Client → Server: request a carve operation on the item in the chisel slot.
+ * Client → Server: request a carve operation on the carved item held in the chisel.
  *
  * action values:
  *   0 = SPLIT    – subdivide the leaf at path
  *   1 = REMOVE   – collapse the node at path back to empty
  *   2 = SET_MAT  – set leaf material to paletteIndex
  *
- * Security: path length, valid chars, UI open, item type, and finished state are all validated.
+ * Security: path chars, path depth, player holding chisel, carved item type,
+ * palette index range, and finished state are all validated server-side.
  */
 public class CarveActionPacket {
 
-    public static final byte SPLIT    = 0;
-    public static final byte REMOVE   = 1;
-    public static final byte SET_MAT  = 2;
+    public static final byte SPLIT   = 0;
+    public static final byte REMOVE  = 1;
+    public static final byte SET_MAT = 2;
 
     public static final int MAX_PATH_DEPTH = 32;
 
     private final String path;
     private final byte   action;
-    private final int    paletteIndex; // only used for SET_MAT
+    private final int    paletteIndex;
 
     public CarveActionPacket(String path, byte action, int paletteIndex) {
         this.path         = path;
@@ -39,10 +43,9 @@ public class CarveActionPacket {
         this.paletteIndex = paletteIndex;
     }
 
-    // Convenience constructors
-    public static CarveActionPacket split(String path)               { return new CarveActionPacket(path, SPLIT, 0); }
-    public static CarveActionPacket remove(String path)              { return new CarveActionPacket(path, REMOVE, 0); }
-    public static CarveActionPacket setMat(String path, int palIdx)  { return new CarveActionPacket(path, SET_MAT, palIdx); }
+    public static CarveActionPacket split(String path)              { return new CarveActionPacket(path, SPLIT, 0); }
+    public static CarveActionPacket remove(String path)             { return new CarveActionPacket(path, REMOVE, 0); }
+    public static CarveActionPacket setMat(String path, int palIdx) { return new CarveActionPacket(path, SET_MAT, palIdx); }
 
     // ── Codec ─────────────────────────────────────────────────────────────────
 
@@ -68,12 +71,19 @@ public class CarveActionPacket {
             // ── Guard 1: path validation ──────────────────────────────────────
             if (!isValidPath(path)) return;
 
-            // ── Guard 2: player must have chisel UI open ──────────────────────
-            if (!(player.containerMenu instanceof ChiselMenu menu)) return;
+            // ── Guard 2: player must be holding a chisel ──────────────────────
+            ItemStack chiselStack = findChisel(player);
+            if (chiselStack.isEmpty()) return;
 
-            // ── Guard 3: carved item must be in slot 0 ────────────────────────
-            ItemStack carvedStack = menu.getCarvedItemSlot().getItem();
-            if (carvedStack.isEmpty() || !(carvedStack.getItem() instanceof CarvedItem)) return;
+            // ── Guard 3: chisel must contain a CarvedItem in slot 0 ──────────
+            final ItemStack[] carvedRef = { ItemStack.EMPTY };
+            chiselStack.getCapability(ForgeCapabilities.ITEM_HANDLER).ifPresent(handler -> {
+                ItemStack slot0 = handler.getStackInSlot(0);
+                if (!slot0.isEmpty() && slot0.getItem() instanceof CarvedItem)
+                    carvedRef[0] = slot0;
+            });
+            ItemStack carvedStack = carvedRef[0];
+            if (carvedStack.isEmpty()) return;
 
             CompoundTag tag = carvedStack.getOrCreateTag();
             CarvingData data = CarvingData.readFromNBT(tag);
@@ -94,25 +104,29 @@ public class CarveActionPacket {
 
             if (!changed) return;
 
-            // Write back
+            // Write back to the carved item's NBT (in-place, same reference)
             data.writeToNBT(tag);
-            menu.getCarvedItemSlot().setChanged();
 
-            // Push updated slot to client (vanilla tick will also do this, but force immediate)
-            menu.broadcastChanges();
-
-            // Send dedicated sync packet with full tree JSON for the JS canvas
-            ServerPlayer sp = player;
+            // Push updated tree JSON to the client's JS canvas
             ModNetwork.CHANNEL.sendTo(
                     SyncCarvedItemPacket.fromData(data),
-                    sp.connection.connection,
-                    net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT
+                    player.connection.connection,
+                    NetworkDirection.PLAY_TO_CLIENT
             );
         });
         ctx.get().setPacketHandled(true);
     }
 
-    // ── Validation ────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Returns the chisel ItemStack if the player is holding one, else EMPTY. */
+    private static ItemStack findChisel(ServerPlayer player) {
+        for (InteractionHand hand : InteractionHand.values()) {
+            ItemStack held = player.getItemInHand(hand);
+            if (held.getItem() instanceof ChiselItem) return held;
+        }
+        return ItemStack.EMPTY;
+    }
 
     private static boolean isValidPath(String path) {
         if (path == null || path.length() > MAX_PATH_DEPTH) return false;

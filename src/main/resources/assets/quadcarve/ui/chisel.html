@@ -338,28 +338,30 @@ body {
     return acc;
   }
 
-  /* ── Decode base64 tree from server ──────────────────────── */
-  function base64ToBytes(b64) {
-    const raw = atob(b64);
-    const out = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-    return out;
+  /* ── Convert Java CarvingData (Rhino interop) to JS format ── */
+  function buildJSPalette(javaPalette) {
+    const arr = [];
+    for (let i = 0; i < javaPalette.size(); i++) {
+      const e = javaPalette.get(i);
+      arr.push({ type: e.type.name(), color: e.color, id: e.textureId });
+    }
+    return arr;
   }
 
-  function decodeTree(bytes, h = { i: 0 }) {
-    if (h.i >= bytes.length) return { idx: 0, children: null };
-    const idx = bytes[h.i++];
-    if (idx === 1) {
-      // SPLIT node – read 4 children
-      const children = [
-        decodeTree(bytes, h),
-        decodeTree(bytes, h),
-        decodeTree(bytes, h),
-        decodeTree(bytes, h)
-      ];
-      return { idx: 1, children };
+  function buildJSTree(javaNode) {
+    if (!javaNode.isSubdivided()) {
+      return { idx: javaNode.getPaletteIndex(), children: null };
     }
-    return { idx, children: null };
+    const ch = javaNode.getChildren();
+    return {
+      idx: 1,
+      children: [
+        buildJSTree(ch[0]),
+        buildJSTree(ch[1]),
+        buildJSTree(ch[2]),
+        buildJSTree(ch[3]),
+      ],
+    };
   }
 
   /* ── Optimistic tree operations ───────────────────────────── */
@@ -574,24 +576,20 @@ body {
     }
   }
 
-  /* ── Public API – called by server sync packet ────────────── */
-  window.__quadcarve = {
-    /**
-     * Called by SyncCarvedItemPacket when the server sends updated tree data.
-     * json: { palette:[…], tree:"<base64>", finished:bool }
-     */
-    onSync(json) {
-      const data = (typeof json === 'string') ? JSON.parse(json) : json;
-      palette       = data.palette  || [];
-      finished      = !!data.finished;
-      const bytes   = base64ToBytes(data.tree || '');
-      tree          = decodeTree(bytes);
-      optimisticTree = cloneTree(tree);
-      rebuildSwatches();
-      redraw();
-    },
+  /* ── Server sync – fired by SyncCarvedItemPacket via Window.dispatchEvent ── */
+  window.addEventListener('quadcarve:sync', function (e) {
+    const d    = e.data;   // CarvingData Java object (Rhino interop)
+    palette    = buildJSPalette(d.getPalette());
+    finished   = d.isFinished();
+    tree       = buildJSTree(d.getTree());
+    optimisticTree = cloneTree(tree);
+    rebuildSwatches();
+    redraw();
+  });
 
-    /** Called by Java/ApricityUI to send a packet from JS → Java. Stub injected by bridge. */
+  /* ── JS → Java bridge: stub for sending CarveActionPackets ── */
+  window.__quadcarve = {
+    /** Injected by Java side to send a CarveActionPacket to the server. */
     sendPacket: null,
   };
 
