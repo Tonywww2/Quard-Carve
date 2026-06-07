@@ -1,0 +1,664 @@
+<!-- ═══════════════════════════════════════════════════════
+     QuadCarve – Chisel UI  (ApricityUI compliant, AE theme)
+     - No <button>, <canvas>, <hr>
+     - No getBoundingClientRect / ResizeObserver / Java.type()
+     - DOM quadtree via absolute divs
+     - container id MUST match the BindingBuilder declaration id
+       → saved_data container: id="saved_data"  (not "carved")
+       → player container:    id="player"
+     ═══════════════════════════════════════════════════════ -->
+
+<!-- Import AE theme: slot backgrounds, button styles, etc. -->
+<link rel="stylesheet" href="../apricityui/theme/ae/1.0.0.css" />
+
+<body>
+
+<div id="qc-screen">
+
+  <!-- ── Carving panel ──────────────────────────────────── -->
+  <div id="qc-carve-panel">
+
+    <!-- Left: tool strip — no .area, too narrow for 7px border -->
+    <div id="qc-tools">
+      <div id="btn-split"  class="button qc-tool active" title="Split (S)">✦</div>
+      <div id="btn-remove" class="button qc-tool" title="Remove (R)">✕</div>
+      <div class="qc-sep"></div>
+      <div id="btn-zoom-in"  class="button qc-tool" title="Zoom In">＋</div>
+      <div id="btn-zoom-out" class="button qc-tool" title="Zoom Out">－</div>
+      <div id="btn-reset"    class="button qc-tool" title="Reset">⌂</div>
+      <div class="qc-sep"></div>
+      <div id="qc-swatches"></div>
+    </div>
+
+    <!-- Centre: carving viewport -->
+    <div id="qc-viewport" class="area" style="background:#0c0e10">
+      <div id="qc-canvas"></div>
+      <div id="qc-highlight"></div>
+      <div id="qc-overlay-msg">Place a carved item</div>
+    </div>
+
+    <!-- Right: stats — no .area, too narrow for 7px border -->
+    <div id="qc-info">
+      <div class="qc-sep-h"></div>
+      <div class="qc-label" id="qc-stat-depth">D –</div>
+      <div class="qc-label" id="qc-stat-fill">–</div>
+      <div class="qc-label" id="qc-stat-done" style="display:none">✔ Done</div>
+    </div>
+
+  </div>
+
+  <!-- ── Carved item container ────────────────────────────
+       id="saved_data" MUST match BindingBuilder declaration id
+       (hardcoded as "saved_data" in BindingBuilder.saveddata())
+       Explicit <slot> child needed for SlotDataBinder to
+       position the menu slot on screen.
+  ── -->
+  <container id="saved_data" bind="saved_data" size="1" slot-size="20">
+    <slot></slot>
+    <div class="qc-section-title">Carved Item</div>
+  </container>
+
+  <!-- ── Player inventory ─────────────────────────────────
+       Explicit slot layout: 3 rows main + 1 row hotbar,
+       divided by a horizontal separator.
+       Slot indices: hotbar = 0-8, main = 9-35 (player inv order)
+  ── -->
+  <container id="player" bind="player" size="36" slot-size="16">
+    <div class="qc-inv-row">
+      <slot index="9"/><slot index="10"/><slot index="11"/>
+      <slot index="12"/><slot index="13"/><slot index="14"/>
+      <slot index="15"/><slot index="16"/><slot index="17"/>
+    </div>
+    <div class="qc-inv-row">
+      <slot index="18"/><slot index="19"/><slot index="20"/>
+      <slot index="21"/><slot index="22"/><slot index="23"/>
+      <slot index="24"/><slot index="25"/><slot index="26"/>
+    </div>
+    <div class="qc-inv-row">
+      <slot index="27"/><slot index="28"/><slot index="29"/>
+      <slot index="30"/><slot index="31"/><slot index="32"/>
+      <slot index="33"/><slot index="34"/><slot index="35"/>
+    </div>
+    <div class="qc-inv-sep"></div>
+    <div class="qc-inv-row qc-hotbar-row">
+      <slot index="0"/><slot index="1"/><slot index="2"/>
+      <slot index="3"/><slot index="4"/><slot index="5"/>
+      <slot index="6"/><slot index="7"/><slot index="8"/>
+    </div>
+  </container>
+
+</div>
+</body>
+
+<style>
+/* ═══════════════════════════════════════════════════════════
+   QuadCarve Chisel — structural layout only.
+   Visual styling (buttons, slots, areas) comes from the
+   AE theme loaded via <link> above.
+   ═══════════════════════════════════════════════════════════ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Minecraftia", monospace, sans-serif;
+  font-size: 10px;
+  color: #b0b8c0;
+  background: rgba(0,0,0,0.65);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Screen wrapper ────────────────────────────────────── */
+#qc-screen {
+  display: flex;
+  flex-direction: column;
+  width: 256px;
+}
+
+/* ── Carving panel ─────────────────────────────────────── */
+#qc-carve-panel {
+  display: flex;
+  height: 112px;
+  background: #0c0e10;
+}
+
+/* ── Left tool strip ───────────────────────────────────── */
+#qc-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 18px;
+  padding: 3px 1px;
+}
+
+/* Tools use the AE .button class for visual styling;
+   .qc-tool only sets size / cursor / layout.            */
+.qc-tool {
+  width: 14px; height: 14px;
+  font-size: 9px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.qc-tool.active { color: #15b4c4; }
+
+.qc-sep {
+  width: 12px; height: 1px;
+  background: #2a3d4f;
+  margin: 2px 0;
+}
+.qc-sep-h {
+  width: 28px; height: 1px;
+  background: #2a3d4f;
+  margin: 3px 0;
+}
+
+/* ── Swatches ──────────────────────────────────────────── */
+#qc-swatches {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 2px; margin-top: 1px;
+}
+.qc-swatch {
+  width: 10px; height: 10px;
+  border: 1px solid #3a4a5a;
+  cursor: pointer;
+}
+.qc-swatch.active { border-color: #15b4c4; }
+
+/* ── Viewport ──────────────────────────────────────────── */
+#qc-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  cursor: crosshair;
+}
+#qc-canvas {
+  position: absolute;
+  overflow: hidden;
+}
+.qc-cell {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+#qc-highlight {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid rgba(21,180,196,0.5);
+  display: none;
+}
+#qc-overlay-msg {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: #3a4a5a;
+  pointer-events: none;
+  text-align: center;
+  padding: 4px;
+}
+
+/* ── Stats sidebar ─────────────────────────────────────── */
+#qc-info {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+  width: 32px; padding: 3px 2px;
+}
+.qc-label {
+  font-size: 8px;
+  color: #6a8090;
+  text-align: center;
+  line-height: 1.3;
+}
+#qc-stat-done { color: #4ac460; }
+
+/* ── Containers ────────────────────────────────────────── */
+container#saved_data {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+}
+
+container#player {
+  display: block;
+  padding: 4px 6px 5px;
+}
+
+/* ── Player inventory rows ─────────────────────────────── */
+.qc-inv-row {
+  display: flex;
+  gap: 0;
+}
+.qc-inv-row slot {
+  margin: 0;
+}
+
+.qc-inv-sep {
+  height: 2px;
+  background: #2a3d4f;
+  margin: 2px 0;
+}
+
+.qc-section-title {
+  font-size: 9px;
+  color: #5a7080;
+}
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── DOM refs ──────────────────────────────────────────── */
+  var canvasDiv  = document.getElementById('qc-canvas');
+  var vp         = document.getElementById('qc-viewport');
+  var hlDiv      = document.getElementById('qc-highlight');
+  var msgEl      = document.getElementById('qc-overlay-msg');
+  var swatches   = document.getElementById('qc-swatches');
+  var statDepth  = document.getElementById('qc-stat-depth');
+  var statFill   = document.getElementById('qc-stat-fill');
+  var statDone   = document.getElementById('qc-stat-done');
+
+  /* ── State ──────────────────────────────────────────────── */
+  var optimisticTree = null;
+  var palette        = [];
+  var finished       = false;
+  var mode           = 'split';
+
+  var scale = 1.0, panX = 0, panY = 0;
+  var dragging = false, dragX0 = 0, dragY0 = 0, panX0 = 0, panY0 = 0;
+  var hoverPath = null;
+
+  var pendingActions = [];
+  var debounceTimer = null;
+  var DEBOUNCE_MS = 80;
+
+  /* viewport pixel dims (computed in resizeViewport) */
+  var vpW = 206, vpH = 112;
+  var squareSize = 112, squareLeft = 47, squareTop = 0;
+
+  /* ── Utils: mouse pos relative to an element ──────────── */
+  function relPos(el, e) {
+    if (typeof e.offsetX === 'number' && typeof e.offsetY === 'number')
+      return { x: e.offsetX, y: e.offsetY };
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  /* ── Sync event from Java ─────────────────────────────────
+     e.jsData (ApricityUI): auto-converted Map → plain JS:
+       { finished:bool, palette:[{type,color,id}], tree:{idx,children|null} }
+     e.data   (Rhino fallback): live CarvingData Java object with .isFinished() etc.
+  ── */
+  window.addEventListener('quadcarve:sync', function (e) {
+    // Write debug info to overlay so we can see it in-game
+    if (msgEl) msgEl.innerText = 'sync: jsData=' + (e.jsData ? 'YES' : 'NO') + ' data=' + (e.data ? 'YES' : 'NO');
+
+    // ApricityUI path: jsData is a plain Map that Rhino wraps as a native-like object
+    var jsData = e.jsData;
+    if (jsData && jsData.palette !== undefined && jsData.tree !== undefined) {
+      finished = Boolean(jsData.finished);
+      palette  = jsData.palette;
+      optimisticTree = cloneTree(jsData.tree);
+      rebuildSwatches();
+      renderTree();
+      return;
+    }
+
+    // Rhino fallback: live Java CarvingData object with .isFinished() etc.
+    var javaData = e.data;
+    if (javaData && typeof javaData.isFinished === 'function') {
+      if (msgEl) msgEl.innerText = 'sync: Rhino path';
+      finished = javaData.isFinished();
+      rebuildPaletteFromJava(javaData);
+      optimisticTree = buildTreeFromJava(javaData);
+      renderTree();
+    }
+  });
+
+  /* Rhino-only helpers (only called when e.data is a live Java object) */
+  function rebuildPaletteFromJava(data) {
+    palette = [];
+    var p = data.getPalette();
+    for (var i = 0; i < p.size(); i++) {
+      var e = p.get(i);
+      palette.push({ type: e.type.name(), color: e.color, id: e.textureId });
+    }
+    rebuildSwatches();
+  }
+  function buildTreeFromJava(javaNode) {
+    if (javaNode == null) return { idx: 0, children: null };
+    if (javaNode.isSubdivided()) {
+      var ch = javaNode.getChildren();
+      return { idx: 1, children: [
+        buildTreeFromJava(ch[0]), buildTreeFromJava(ch[1]),
+        buildTreeFromJava(ch[2]), buildTreeFromJava(ch[3])
+      ]};
+    }
+    return { idx: javaNode.getPaletteIndex(), children: null };
+  }
+
+  /* ── Palette colour ─────────────────────────────────────── */
+  function paletteColour(idx) {
+    if (idx === 0) return '#111';
+    if (idx === 1) return null;
+    var e = palette[idx];
+    if (!e) return '#333';
+    if (e.type === 'EMPTY') return '#111';
+    if (e.type === 'SPLIT') return null;
+    var c = e.color >>> 0;
+    return 'rgb(' + ((c>>16)&0xff) + ',' + ((c>>8)&0xff) + ',' + (c&0xff) + ')';
+  }
+
+  /* ── Tree helpers ───────────────────────────────────────── */
+  function cloneTree(n) {
+    if (!n) return null;
+    // IMPORTANT: when `n` is a raw Java-backed NativeJavaMap (from jsData), accessing
+    // a missing/null-valued key like `n.children` directly throws a NullPointerException
+    // deep inside Rhino's NativeJavaMap.get -> ValueUnwrapper (it unwraps via
+    // value.getClass() with no null-check). The `in` operator / hasOwnProperty only
+    // check map.containsKey(...) and never touch the value, so they're safe to use for
+    // existence checks. The Java side guarantees the "children" key is present (as a
+    // non-null, possibly-empty list) only for subdivided nodes and omitted for leaves,
+    // so a safe containsKey-style check fully distinguishes the two cases here.
+    if (!('children' in n)) return { idx: n.idx, children: null };
+    var kids = [];
+    for (var i = 0; i < n.children.length; i++)
+      kids.push(cloneTree(n.children[i]));
+    return { idx: n.idx, children: kids };
+  }
+
+  function treeDepth(n) {
+    if (!n || !n.children) return 1;
+    var m = 0;
+    for (var i = 0; i < n.children.length; i++)
+      m = Math.max(m, treeDepth(n.children[i]));
+    return 1 + m;
+  }
+  function treeStats(n, a) {
+    if (!a) a = { filled: 0, total: 0 };
+    if (!n) return a;
+    if (!n.children) { a.total++; if (n.idx > 1) a.filled++; return a; }
+    for (var i = 0; i < n.children.length; i++)
+      treeStats(n.children[i], a);
+    return a;
+  }
+
+  /* ── Collect leaf rects for DOM rendering ──────────────── */
+  function collectLeaves(node, u, v, size, out) {
+    if (!node) return;
+    if (!node.children) {
+      if (node.idx !== 1)
+        out.push({ u: u, v: v, size: size, idx: node.idx });
+      return;
+    }
+    var half = size / 2;
+    collectLeaves(node.children[0], u,        v,        half, out);
+    collectLeaves(node.children[1], u + half, v,        half, out);
+    collectLeaves(node.children[2], u,        v + half, half, out);
+    collectLeaves(node.children[3], u + half, v + half, half, out);
+  }
+
+  function renderTree() {
+    while (canvasDiv.firstChild)
+      canvasDiv.removeChild(canvasDiv.firstChild);
+
+    if (!optimisticTree) {
+      msgEl.style.display = 'flex';
+      hlDiv.style.display = 'none';
+      // DEBUG overlay: confirm tree is null
+      msgEl.innerText = 'tree=NULL';
+      return;
+    }
+    msgEl.style.display = 'none';
+
+    var leaves = [];
+    collectLeaves(optimisticTree, 0, 0, 1, leaves);
+
+    var rendered = 0;
+    for (var i = 0; i < leaves.length; i++) {
+      var L = leaves[i];
+      var col = paletteColour(L.idx);
+      if (!col) continue;
+      var div = document.createElement('div');
+      div.className = 'qc-cell';
+      div.style.left   = (L.u  * 100) + '%';
+      div.style.top    = (L.v  * 100) + '%';
+      div.style.width  = (L.size * 100) + '%';
+      div.style.height = (L.size * 100) + '%';
+      div.style.background = col;
+      if (L.size * squareSize * scale >= 3)
+        div.style.boxShadow = 'inset 0 0 0 0.5px rgba(255,255,255,0.06)';
+      canvasDiv.appendChild(div);
+      rendered++;
+    }
+
+    var d = treeDepth(optimisticTree);
+    var s = treeStats(optimisticTree);
+    statDepth.innerText = 'D ' + d;
+    statFill.innerText  = s.total > 0 ? Math.round(s.filled / s.total * 100) + '%' : '–';
+    statDone.style.display = finished ? '' : 'none';
+
+    // DEBUG overlay: show leaf/render counts
+    msgEl.innerText = 'OK leaves=' + leaves.length + ' drawn=' + rendered + ' D' + d;
+
+    applyTransform();
+  }
+
+  function applyTransform() {
+    canvasDiv.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + scale + ')';
+    if (hoverPath !== null)
+      updateHighlight(hoverPath);
+    else
+      hlDiv.style.display = 'none';
+  }
+
+  /* ── Resize (no ResizeObserver / getBoundingClientRect) ── */
+  function resizeViewport() {
+    /* screen=256px, tools=18px, info=32px, borders=2px */
+    vpW = 206; vpH = 112;
+    squareSize = Math.min(vpW, vpH);
+    squareLeft = Math.floor((vpW - squareSize) / 2);
+    squareTop  = Math.floor((vpH - squareSize) / 2);
+
+    canvasDiv.style.left   = squareLeft + 'px';
+    canvasDiv.style.top    = squareTop  + 'px';
+    canvasDiv.style.width  = squareSize + 'px';
+    canvasDiv.style.height = squareSize + 'px';
+
+    renderTree();
+  }
+
+  /* ── Screen → quadtree path ─────────────────────────────── */
+  function screenToPath(mx, my) {
+    var cx = (mx - squareLeft  - panX) / scale;
+    var cy = (my - squareTop   - panY) / scale;
+    var u = cx / squareSize;
+    var v = cy / squareSize;
+    if (u < 0 || v < 0 || u >= 1 || v >= 1) return null;
+
+    var path = '', node = optimisticTree, sz = 1;
+    while (node && node.children) {
+      var half = sz / 2;
+      var q = (u >= half ? 1 : 0) + (v >= half ? 2 : 0);
+      path += q;
+      if (q === 1 || q === 3) u -= half;
+      if (q >= 2)             v -= half;
+      sz = half;
+      node = node.children[q];
+    }
+    return path;
+  }
+
+  function pathToRect(p) {
+    var u = 0, v = 0, sz = 1;
+    for (var i = 0; p && i < p.length; i++) {
+      var half = sz / 2;
+      var q = parseInt(p[i]);
+      if (q === 1 || q === 3) u += half;
+      if (q >= 2)             v += half;
+      sz = half;
+    }
+    return { u: u, v: v, s: sz };
+  }
+
+  function updateHighlight(path) {
+    var r = pathToRect(path);
+    var s = squareSize * scale;
+    var ox = squareLeft + panX;
+    var oy = squareTop  + panY;
+    hlDiv.style.left   = (ox + r.u * s) + 'px';
+    hlDiv.style.top    = (oy + r.v * s) + 'px';
+    hlDiv.style.width  = (r.s * s - 2) + 'px';
+    hlDiv.style.height = (r.s * s - 2) + 'px';
+    hlDiv.style.display = '';
+  }
+
+  /* ── Optimistic local ops ───────────────────────────────── */
+  function opSplit(n, path, d) {
+    if (d === undefined) d = 0;
+    if (d === path.length) {
+      if (n.children) return;
+      n.idx = 1;
+      n.children = [{idx:0,children:null},{idx:0,children:null},{idx:0,children:null},{idx:0,children:null}];
+      return;
+    }
+    if (!n.children) {
+      var pi = n.idx;
+      n.idx = 1;
+      n.children = [{idx:pi,children:null},{idx:pi,children:null},{idx:pi,children:null},{idx:pi,children:null}];
+    }
+    opSplit(n.children[parseInt(path[d])], path, d + 1);
+  }
+  function opRemove(n, path, d) {
+    if (d === undefined) d = 0;
+    if (d === path.length) { n.idx = 0; n.children = null; return; }
+    if (!n.children) return;
+    opRemove(n.children[parseInt(path[d])], path, d + 1);
+  }
+
+  /* ── Debounced packet send ──────────────────────────────── */
+  function queueAction(path, action) {
+    pendingActions.push({ path: path, action: action });
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+  }
+  function flush() {
+    var batch = pendingActions.splice(0);
+    var map = {};
+    for (var i = 0; i < batch.length; i++) {
+      var key = batch[i].path + '|' + batch[i].action;
+      map[key] = batch[i];
+    }
+    for (var k in map) {
+      if (map.hasOwnProperty(k))
+        sendPacket(map[k].path, map[k].action);
+    }
+  }
+  function sendPacket(path, action) {
+    /* ApricityUI JS→Java: dispatch plain object; Java listens via
+       Window.window.addEventListener("quadcarve:action", ...) */
+    window.dispatchEvent({ type: 'quadcarve:action', path: path, action: action });
+  }
+
+  /* ── Mouse interaction ──────────────────────────────────── */
+  vp.addEventListener('mousedown', function (e) {
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      dragging = true;
+      dragX0 = e.clientX; dragY0 = e.clientY;
+      panX0 = panX; panY0 = panY;
+      return;
+    }
+    if (finished || !optimisticTree) return;
+    var p = relPos(vp, e);
+    var path = screenToPath(p.x, p.y);
+    if (path === null) return;
+    var copy = cloneTree(optimisticTree);
+    if (mode === 'split')  { opSplit(copy, path); queueAction(path, 0); }
+    else                   { opRemove(copy, path); queueAction(path, 1); }
+    optimisticTree = copy;
+    renderTree();
+  });
+
+  vp.addEventListener('mousemove', function (e) {
+    if (dragging) {
+      panX = panX0 + (e.clientX - dragX0);
+      panY = panY0 + (e.clientY - dragY0);
+      applyTransform();
+      return;
+    }
+    if (!optimisticTree) return;
+    var p = relPos(vp, e);
+    var path = screenToPath(p.x, p.y);
+    if (path !== hoverPath) {
+      hoverPath = path;
+      if (path !== null) updateHighlight(path);
+      else hlDiv.style.display = 'none';
+    }
+  });
+
+  vp.addEventListener('mouseup',    function () { dragging = false; });
+  vp.addEventListener('mouseleave', function () { dragging = false; hoverPath = null; hlDiv.style.display = 'none'; });
+
+  vp.addEventListener('scroll', function (e) {
+    var f = e.scrollDelta < 0 ? 1.15 : (1 / 1.15);
+    var p = relPos(vp, e);
+    var mx = p.x, my = p.y;
+    panX = mx - (mx - panX) * f;
+    panY = my - (my - panY) * f;
+    scale = Math.min(Math.max(scale * f, 0.2), 16);
+    applyTransform();
+  });
+
+  /* ── Toolbar ────────────────────────────────────────────── */
+  function setMode(m) {
+    mode = m;
+    var bs = document.getElementById('btn-split');
+    var br = document.getElementById('btn-remove');
+    if (bs) bs.className = 'qc-tool' + (m === 'split'  ? ' active' : '');
+    if (br) br.className = 'qc-tool' + (m === 'remove' ? ' active' : '');
+  }
+  document.getElementById('btn-split').addEventListener('click',    function () { setMode('split'); });
+  document.getElementById('btn-remove').addEventListener('click',   function () { setMode('remove'); });
+  document.getElementById('btn-zoom-in').addEventListener('click',  function () { scale = Math.min(scale * 1.3, 16); applyTransform(); });
+  document.getElementById('btn-zoom-out').addEventListener('click', function () { scale = Math.max(scale / 1.3, 0.2); applyTransform(); });
+  document.getElementById('btn-reset').addEventListener('click',    function () { scale = 1; panX = 0; panY = 0; applyTransform(); });
+
+  /* ── Keyboard ───────────────────────────────────────────── */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 's') setMode('split');
+    if (e.key === 'r') setMode('remove');
+    if (e.key === '+' || e.key === '=') { scale = Math.min(scale * 1.2, 16); applyTransform(); }
+    if (e.key === '-') { scale = Math.max(scale / 1.2, 0.2); applyTransform(); }
+    if (e.key === 'Home') { scale = 1; panX = 0; panY = 0; applyTransform(); }
+  });
+
+  /* ── Swatches ───────────────────────────────────────────── */
+  function rebuildSwatches() {
+    swatches.innerHTML = '';
+    for (var i = 2; palette && i < palette.length; i++) {
+      (function (idx) {
+        var div = document.createElement('div');
+        div.className = 'qc-swatch';
+        div.style.background = paletteColour(idx) || '#888';
+        div.title = palette[idx].id || '';
+        div.addEventListener('click', function () {
+          var all = document.querySelectorAll('.qc-swatch');
+          for (var j = 0; j < all.length; j++) all[j].classList.remove('active');
+          div.classList.add('active');
+        });
+        swatches.appendChild(div);
+      })(i);
+    }
+  }
+
+  /* ── Init ───────────────────────────────────────────────── */
+  resizeViewport();
+  renderTree();
+
+})();
+</script>

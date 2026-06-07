@@ -5,7 +5,10 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Composite of CarvingTree + Palette. The single source of truth stored in a CarvedItem's NBT.
@@ -114,4 +117,58 @@ public class CarvingData {
     public int totalLeaves()   { return tree.leafCount(); }
     public int filledLeaves()  { return tree.filledLeafCount(); }
     public int materialCount() { return Math.max(0, palette.size() - 2); }
+
+    // ── JS interop (ApricityUI) ──────────────────────────────────────────────
+
+    /**
+     * Exports the full CarvingData as a plain {@code Map<String, Object>} suitable
+     * for ApricityUI's JS engine.  This replaces the Rhino Java-interop pattern
+     * ({@code data.isFinished()}, {@code data.getTree()}, …) with pure JS objects.
+     *
+     * <pre>
+     * { finished: bool,
+     *   palette:  [ { type: "EMPTY"|"SPLIT"|"CUSTOM", color: int, id: string }, … ],
+     *   tree:     { idx: int, children: null | [ tree, tree, tree, tree ] }
+     * }
+     * </pre>
+     */
+    public Map<String, Object> toJSObject() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("finished", finished);
+
+        // Palette
+        List<Map<String, Object>> pal = new ArrayList<>(palette.size());
+        for (int i = 0; i < palette.size(); i++) {
+            PaletteEntry e = palette.get(i);
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("type",  e.type.name());
+            entry.put("color", e.color);
+            entry.put("id",    e.textureId);
+            pal.add(entry);
+        }
+        map.put("palette", pal);
+
+        // Tree (recursive)
+        map.put("tree", treeToJSMap(tree));
+
+        return map;
+    }
+
+    private static Map<String, Object> treeToJSMap(CarvingTree node) {
+        Map<String, Object> obj = new LinkedHashMap<>();
+        obj.put("idx", node.getPaletteIndex());
+        if (node.isSubdivided() && node.getChildren() != null) {
+            List<Map<String, Object>> kids = new ArrayList<>(4);
+            for (CarvingTree child : node.getChildren()) {
+                kids.add(treeToJSMap(child));
+            }
+            obj.put("children", kids);
+        }
+        // NOTE: do NOT put a literal null into this map. Rhino's NativeJavaMap.get()
+        // unwraps values via ValueUnwrapper, which calls value.getClass() without a
+        // null-check and throws NullPointerException for null entries. Simply omitting
+        // the "children" key makes jsData.tree.children resolve to `undefined` in JS,
+        // which is falsy and works fine with the existing `!n.children` checks.
+        return obj;
+    }
 }

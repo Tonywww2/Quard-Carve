@@ -90,7 +90,9 @@ dependencies {
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor' // This is for the annotation processors
 
 
-    implementation fg.deobf('com.sighs:ApricityUI-forge-1.20.1:1.1.4')
+//    implementation fg.deobf('com.sighs:ApricityUI-forge-1.20.1:1.1.4')
+
+    implementation fg.deobf("curse.maven:apricityui-1470115:8201268")
 
     implementation fg.deobf("curse.maven:architectury-api-419699:5137938")
     implementation fg.deobf("curse.maven:rhino-416294:6186971")

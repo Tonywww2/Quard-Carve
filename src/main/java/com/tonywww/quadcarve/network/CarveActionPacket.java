@@ -1,5 +1,6 @@
 package com.tonywww.quadcarve.network;
 
+import com.sighs.apricityui.instance.ApricitySavedData;
 import com.tonywww.quadcarve.core.CarvingData;
 import com.tonywww.quadcarve.item.CarvedItem;
 import com.tonywww.quadcarve.item.ChiselItem;
@@ -8,14 +9,15 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.NetworkDirection;
 
 import java.util.function.Supplier;
 
 /**
- * Client → Server: request a carve operation on the carved item held in the chisel.
+ * Client → Server: request a carve operation on the CarvedItem
+ * stored in the ApricityUI saved_data container.
  *
  * action values:
  *   0 = SPLIT    – subdivide the leaf at path
@@ -32,6 +34,9 @@ public class CarveActionPacket {
     public static final byte SET_MAT = 2;
 
     public static final int MAX_PATH_DEPTH = 32;
+
+    private static final String SAVED_DATA_NAME = "quadcarve_carved";
+    private static final String INVENTORY_KEY   = "saved_data"; // matches BindingBuilder's container id
 
     private final String path;
     private final byte   action;
@@ -75,15 +80,14 @@ public class CarveActionPacket {
             ItemStack chiselStack = findChisel(player);
             if (chiselStack.isEmpty()) return;
 
-            // ── Guard 3: chisel must contain a CarvedItem in slot 0 ──────────
-            final ItemStack[] carvedRef = { ItemStack.EMPTY };
-            chiselStack.getCapability(ForgeCapabilities.ITEM_HANDLER).ifPresent(handler -> {
-                ItemStack slot0 = handler.getStackInSlot(0);
-                if (!slot0.isEmpty() && slot0.getItem() instanceof CarvedItem)
-                    carvedRef[0] = slot0;
-            });
-            ItemStack carvedStack = carvedRef[0];
-            if (carvedStack.isEmpty()) return;
+            // ── Guard 3: read CarvedItem from saved_data container ─────────
+            if (player.getServer() == null) return;
+            ApricitySavedData savedData = ApricitySavedData.get(
+                    player.getServer(), SAVED_DATA_NAME);
+            ItemStackHandler handler = savedData.getOrCreate(INVENTORY_KEY, 1);
+            ItemStack carvedStack = handler.getStackInSlot(0);
+            if (carvedStack.isEmpty() || !(carvedStack.getItem() instanceof CarvedItem))
+                return;
 
             CompoundTag tag = carvedStack.getOrCreateTag();
             CarvingData data = CarvingData.readFromNBT(tag);
@@ -104,12 +108,13 @@ public class CarveActionPacket {
 
             if (!changed) return;
 
-            // Write back to the carved item's NBT (in-place, same reference)
+            // Write back to the carved item's NBT, then persist in saved_data
             data.writeToNBT(tag);
+            handler.setStackInSlot(0, carvedStack); // triggers setDirty() via onContentsChanged
 
             // Push updated tree JSON to the client's JS canvas
             ModNetwork.CHANNEL.sendTo(
-                    SyncCarvedItemPacket.fromData(data),
+                    SyncCarvedItemPacket.fromData(data, carvedStack),
                     player.connection.connection,
                     NetworkDirection.PLAY_TO_CLIENT
             );
